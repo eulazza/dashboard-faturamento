@@ -1,10 +1,11 @@
+import os
 import pandas as pd
 import plotly.express as px
 from dash import Dash, dcc, html, Input, Output
 from datetime import datetime
 
 # Carregar dados
-df = pd.read_csv('Vendas.csv', delimiter=',')
+df = pd.read_csv('./data/Vendas.csv', delimiter=',')
 
 # Converter valores monetários para float
 def converter_valor(valor):
@@ -23,7 +24,7 @@ df[colunas_valores] = df[colunas_valores].applymap(converter_valor)
 df_melted = df.melt(id_vars=['Nome do Produto'], value_vars=colunas_valores, 
                     var_name='Periodo', value_name='Faturamento')
 
-# Converter 'Periodo' para datetime (ajuste para meses em português)
+# Converter 'Periodo' para datetime (meses em português)
 meses_pt = {
     'janeiro': 'January', 'fevereiro': 'February', 'março': 'March', 'abril': 'April',
     'maio': 'May', 'junho': 'June', 'julho': 'July', 'agosto': 'August',
@@ -41,11 +42,9 @@ def converter_periodo(periodo):
         return None
 
 df_melted['Periodo'] = df_melted['Periodo'].apply(converter_periodo)
-
-# Ordenar por data
 df_melted = df_melted.dropna(subset=['Periodo']).sort_values('Periodo')
 
-# Criar uma sequência completa de meses
+# Criar sequência completa de meses
 data_min = df_melted['Periodo'].min()
 data_max = df_melted['Periodo'].max()
 todos_meses = pd.date_range(start=data_min, end=data_max, freq='MS')
@@ -60,6 +59,7 @@ def completar_meses(dados_produto):
 
 # Iniciar app Dash
 app = Dash(__name__)
+server = app.server  # 🔴 ESSENCIAL para Render/Gunicorn
 
 app.layout = html.Div([
     html.H1('Dashboard de Faturamento'),
@@ -94,16 +94,10 @@ app.layout = html.Div([
     [Input('produto-dropdown', 'value'), Input('tipo-grafico-dropdown', 'value')]
 )
 def atualizar_grafico(produto_selecionado, tipo_grafico):
-    # Filtrar dados do produto
     dados_produto = df_melted[df_melted['Nome do Produto'] == produto_selecionado].copy()
-    
-    # Completar com todos os meses
     dados_produto = completar_meses(dados_produto)
-    
-    # Calcular total
     total_faturamento = dados_produto['Faturamento'].sum()
     
-    # Criar gráfico
     if tipo_grafico == 'line':
         fig = px.line(dados_produto, x='Periodo', y='Faturamento', markers=True,
                      title=f'Faturamento de {produto_selecionado}')
@@ -111,16 +105,13 @@ def atualizar_grafico(produto_selecionado, tipo_grafico):
         fig = px.bar(dados_produto, x='Periodo', y='Faturamento',
                     title=f'Faturamento de {produto_selecionado}')
     
-    # Configurar layout
     fig.update_layout(
         xaxis_title='Mês',
         yaxis_title='Faturamento (R$)',
-        xaxis={'tickformat': '%b/%Y', 'dtick': 'M1'},  # Mostra todos os meses
+        xaxis={'tickformat': '%b/%Y', 'dtick': 'M1'},
         yaxis={'tickformat': ',.2f'},
         showlegend=True
     )
-    
-    # Garantir que todos os meses apareçam
     fig.update_xaxes(
         range=[todos_meses.min(), todos_meses.max()],
         tickmode='array',
@@ -131,4 +122,5 @@ def atualizar_grafico(produto_selecionado, tipo_grafico):
     return fig, f'Total Faturado: R$ {total_faturamento:,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')
 
 if __name__ == '__main__':
-    app.run_server(host='0.0.0.0', port=8050, debug=True)
+    port = int(os.environ.get('PORT', 8050))  # 🔴 PORT dinâmica para Render
+    app.run_server(host='0.0.0.0', port=port)
